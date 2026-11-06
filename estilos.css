@@ -1,0 +1,239 @@
+:root {
+    --primario: #2563eb;
+    --primario-oscuro: #1d4ed8;
+    --peligro: #dc2626;
+    --texto: #1f2937;
+    --texto-suave: #6b7280;
+    --borde: #e5e7eb;
+    --fondo: #f3f4f6;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--fondo);
+    color: var(--texto);
+}
+
+header {
+    background: #111827;
+    color: #fff;
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+header h1 {
+    font-size: 1.15rem;
+    margin: 0;
+}
+
+nav {
+    display: flex;
+    gap: 0.5rem;
+}
+
+nav a {
+    color: #d1d5db;
+    text-decoration: none;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+}
+
+nav a:hover {
+    background: #1f2937;
+    color: #fff;
+}
+
+nav a.activo {
+    background: var(--primario);
+    color: #fff;
+}
+
+main {
+    max-width: 980px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.barra {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.barra h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 0.7rem 0.6rem;
+    text-align: left;
+    border-bottom: 1px solid var(--borde);
+    font-size: 0.95rem;
+}
+
+th {
+    color: var(--texto-suave);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+tbody tr:hover {
+    background: #f9fafb;
+}
+
+.acciones {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.45rem 0.8rem;
+    border-radius: 6px;
+    border: 1px solid var(--borde);
+    background: #fff;
+    color: var(--texto);
+    text-decoration: none;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.btn:hover {
+    background: #f3f4f6;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primario {
+    background: var(--primario);
+    border-color: var(--primario);
+    color: #fff;
+}
+
+.btn-primario:hover {
+    background: var(--primario-oscuro);
+}
+
+.btn-editar {
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
+.btn-editar:hover {
+    background: #dbeafe;
+}
+
+.btn-duplicar {
+    border-color: #fde68a;
+    color: #92400e;
+    background: #fffbeb;
+}
+
+.btn-duplicar:hover {
+    background: #fef3c7;
+}
+
+.btn-eliminar {
+    border-color: #fecaca;
+    color: var(--peligro);
+    background: #fef2f2;
+}
+
+.btn-eliminar:hover {
+    background: #fee2e2;
+}
+
+.formulario {
+    display: grid;
+    gap: 1rem;
+    max-width: 420px;
+}
+
+.formulario label {
+    display: grid;
+    gap: 0.3rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.formulario input,
+.formulario select {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-family: inherit;
+}
+
+.formulario input:focus,
+.formulario select:focus {
+    outline: 2px solid #bfdbfe;
+    border-color: var(--primario);
+}
+
+.acciones-form {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.mensaje {
+    padding: 0.7rem 0.9rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.mensaje.ok {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+}
+
+.mensaje.error {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+
+.vacio {
+    color: var(--texto-suave);
+    text-align: center;
+    padding: 1.5rem 0;
+    margin: 0;
+}
