@@ -24,12 +24,41 @@ CRUD completo de **alumnos** y **grupos** sobre PHP + MySQL (XAMPP), manteniendo
 
 `index.php` redirige a `lista_alumnos.php`. Las migraciones crean la base `escuela`, las tablas y el historial de migraciones.
 
+## Documentación de la API (Swagger)
+
+La API está documentada con OpenAPI 3.0.3 y se puede explorar y probar desde Swagger UI:
+
+```text
+http://localhost/escuela/docs/index.html
+```
+
+También hay un enlace **API (Swagger)** en la barra de navegación del sistema.
+
+Archivos:
+
+| Archivo | Descripción |
+| --- | --- |
+| `docs/openapi.json` | Contrato OpenAPI con todos los endpoints, parámetros, esquemas y ejemplos |
+| `docs/index.html` | Página que monta Swagger UI |
+| `docs/swagger-ui/` | JavaScript y CSS de Swagger UI servidos localmente (no requiere CDN) |
+
+Desde Swagger UI puedes usar **Try it out** para ejecutar cada operación contra `http://localhost/escuela/endpoints.php`. Ten en cuenta que:
+
+- `tipo` es obligatorio y acepta `alumnos` o `grupos`.
+- `id` es necesario para consultar un registro, editar, eliminar y duplicar.
+- Para duplicar: `tipo=alumnos`, `id=<id>`, `accion=duplicar` y sin cuerpo.
+- Las operaciones de escritura devuelven `201` al crear o duplicar y `200` al actualizar o eliminar.
+
 ## Estructura del proyecto
 
 ```text
 escuela/
 ├── config/
 │   └── database.php       # Configuración de conexión a MySQL
+├── docs/
+│   ├── index.html         # Swagger UI
+│   ├── openapi.json       # Contrato OpenAPI 3.0.3
+│   └── swagger-ui/        # Assets locales de Swagger UI
 ├── migrations/
 │   ├── 001_create_grupos.sql
 │   ├── 002_create_alumnos.sql

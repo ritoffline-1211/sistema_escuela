@@ -12,6 +12,7 @@
         <nav>
             <a href="lista_alumnos.php">Alumnos</a>
             <a class="activo" href="lista_grupos.php">Grupos</a>
+            <a href="docs/index.html" target="_blank" rel="noopener">API (Swagger)</a>
         </nav>
     </header>
 
