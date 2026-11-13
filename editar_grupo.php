@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/auth.php';
+
+$usuarioActual = requiereAdmin();
 $id = isset($_GET["id"]) ? (int) $_GET["id"] : 0;
 ?>
 <!DOCTYPE html>
@@ -15,7 +18,16 @@ $id = isset($_GET["id"]) ? (int) $_GET["id"] : 0;
         <nav>
             <a href="lista_alumnos.php">Alumnos</a>
             <a class="activo" href="lista_grupos.php">Grupos</a>
-            <a href="docs/index.html" target="_blank" rel="noopener">API (Swagger)</a>
+            <div class="usuario-nav">
+                <span class="usuario-nombre">
+                    <?= htmlspecialchars($usuarioActual["nombre"]) ?>
+                    <span class="rol"><?= htmlspecialchars($usuarioActual["rol"]) ?></span>
+                </span>
+                <form method="post" action="logout.php">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>">
+                    <button type="submit" class="btn-salir">Salir</button>
+                </form>
+            </div>
         </nav>
     </header>
 

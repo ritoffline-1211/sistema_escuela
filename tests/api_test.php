@@ -13,21 +13,41 @@
 const PREFIJO_GRUPO = 'TEST-API-';
 const PREFIJO_MATRICULA = 'TST-';
 
+$configAuth = require __DIR__ . '/../config/auth.php';
+$apiToken = (string) ($configAuth['api_token'] ?? '');
 $baseUrl = getenv('API_BASE_URL') ?: 'http://localhost/escuela/endpoints.php';
+$webBase = rtrim(getenv('WEB_BASE_URL') ?: preg_replace('#/endpoints\.php$#', '', $baseUrl), '/');
 $estado = [];
 $pasadas = 0;
 $falladas = 0;
 $detalleFallos = [];
 
+if ($apiToken === '') {
+    fwrite(STDERR, "No se encontró el token de la API en config/auth.php.\n");
+    exit(1);
+}
+
 /* --------------------------- Cliente HTTP --------------------------- */
 
-function api(string $metodo, string $consulta = '', ?array $cuerpo = null, string $tipoContenido = 'application/json'): array
+/**
+ * Llama a endpoints.php.
+ *
+ * Opciones:
+ *   token     => true (Bearer por defecto), false (sin token) o string (token concreto)
+ *   cabeceras => cabeceras HTTP adicionales
+ */
+function api(string $metodo, string $consulta = '', ?array $cuerpo = null, string $tipoContenido = 'application/json', array $opciones = []): array
 {
-    global $baseUrl;
+    global $baseUrl, $apiToken;
 
     $url = $baseUrl . ($consulta !== '' ? '?' . $consulta : '');
     $ch = curl_init($url);
-    $cabeceras = ['Accept: application/json'];
+    $cabeceras = array_merge(['Accept: application/json'], $opciones['cabeceras'] ?? []);
+
+    if (($opciones['token'] ?? true) !== false) {
+        $token = is_string($opciones['token'] ?? true) ? $opciones['token'] : $apiToken;
+        $cabeceras[] = 'Authorization: Bearer ' . $token;
+    }
 
     if ($cuerpo !== null) {
         if ($tipoContenido === 'application/json') {
@@ -64,6 +84,98 @@ function api(string $metodo, string $consulta = '', ?array $cuerpo = null, strin
         'data' => json_decode($respuesta, true),
         'raw' => $respuesta,
     ];
+}
+
+/**
+ * Llama a una página del sistema (login, listas, documentación).
+ *
+ * Opciones:
+ *   metodo      => GET (por defecto) o POST
+ *   cuerpo      => arreglo para enviar como formulario
+ *   cookies     => ruta del archivo de cookies (para conservar la sesión)
+ *   seguir      => seguir redirecciones (por defecto false)
+ *   contenido   => Content-Type del cuerpo
+ */
+function web(string $ruta, array $opciones = []): array
+{
+    global $webBase;
+
+    $url = $webBase . '/' . ltrim($ruta, '/');
+    $ch = curl_init($url);
+    $cabeceras = ['Accept: text/html,application/json'];
+    $cabecerasRespuesta = [];
+
+    if (isset($opciones['cuerpo'])) {
+        $cuerpo = $opciones['cuerpo'];
+        $contenido = $opciones['contenido'] ?? 'application/x-www-form-urlencoded';
+        $payload = $contenido === 'application/json'
+            ? json_encode($cuerpo, JSON_UNESCAPED_UNICODE)
+            : http_build_query($cuerpo);
+
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        $cabeceras[] = 'Content-Type: ' . $contenido;
+    }
+
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => $opciones['metodo'] ?? 'GET',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => $cabeceras,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_FOLLOWLOCATION => (bool) ($opciones['seguir'] ?? false),
+        CURLOPT_HEADERFUNCTION => function ($ch, $linea) use (&$cabecerasRespuesta) {
+            $partes = explode(':', $linea, 2);
+
+            if (count($partes) === 2) {
+                $cabecerasRespuesta[strtolower(trim($partes[0]))] = trim($partes[1]);
+            }
+
+            return strlen($linea);
+        },
+    ]);
+
+    if (!empty($opciones['cookies'])) {
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $opciones['cookies']);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $opciones['cookies']);
+    }
+
+    $respuesta = curl_exec($ch);
+    $error = curl_error($ch);
+    $codigo = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($respuesta === false) {
+        throw new RuntimeException(
+            "No se pudo conectar con {$url}: {$error}. " .
+            'Verifica que Apache y MySQL estén activos.'
+        );
+    }
+
+    return [
+        'status' => $codigo,
+        'data' => json_decode($respuesta, true),
+        'raw' => $respuesta,
+        'headers' => $cabecerasRespuesta,
+    ];
+}
+
+function csrfDePagina(string $html): string
+{
+    if (!preg_match('/name="csrf"\s+value="([^"]+)"/', $html, $coincidencias)) {
+        throw new RuntimeException('No se encontró el token CSRF en la página.');
+    }
+
+    return $coincidencias[1];
+}
+
+function archivoCookies(string $nombre): string
+{
+    $ruta = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'escuela_test_' . $nombre . '_' . getmypid() . '.txt';
+
+    if (file_exists($ruta)) {
+        unlink($ruta);
+    }
+
+    return $ruta;
 }
 
 /* --------------------------- Aserciones ----------------------------- */
@@ -192,6 +304,53 @@ $estado = [
     'grupoId' => 0,
     'alumnoId' => 0,
 ];
+
+/* ---------------------- Autenticación de la API --------------------- */
+
+prueba('API sin token ni sesión devuelve 401', function () {
+    $respuesta = api('GET', 'tipo=alumnos', null, 'application/json', ['token' => false]);
+    afirmarEstado($respuesta, 401);
+    afirmarIgual(false, afirmarDatos($respuesta)['ok'] ?? null, 'Debe indicar ok=false.');
+});
+
+prueba('API rechaza escrituras sin token', function () {
+    $respuesta = api('POST', 'tipo=grupos', ['grupo' => 'TEST-API-SIN-TOKEN'], 'application/json', ['token' => false]);
+    afirmarEstado($respuesta, 401);
+});
+
+prueba('API rechaza un token inválido', function () {
+    $respuesta = api('GET', 'tipo=alumnos', null, 'application/json', ['token' => 'token-invalido']);
+    afirmarEstado($respuesta, 401);
+});
+
+prueba('API acepta el token en la cabecera X-API-Token', function () {
+    global $apiToken;
+
+    $respuesta = api('GET', 'tipo=alumnos', null, 'application/json', [
+        'token' => false,
+        'cabeceras' => ['X-API-Token: ' . $apiToken],
+    ]);
+    afirmarEstado($respuesta, 200);
+    afirmar(is_array(afirmarDatos($respuesta)), 'Debe devolver la lista de alumnos.');
+});
+
+prueba('API acepta el token en la URL', function () {
+    global $apiToken;
+
+    $respuesta = api('GET', 'tipo=alumnos&token=' . urlencode($apiToken), null, 'application/json', ['token' => false]);
+    afirmarEstado($respuesta, 200);
+    afirmar(is_array(afirmarDatos($respuesta)), 'Debe devolver la lista de alumnos.');
+});
+
+prueba('API acepta Authorization: Bearer', function () {
+    global $apiToken;
+
+    $respuesta = api('GET', 'tipo=grupos', null, 'application/json', [
+        'token' => false,
+        'cabeceras' => ['Authorization: Bearer ' . $apiToken],
+    ]);
+    afirmarEstado($respuesta, 200);
+});
 
 /* ------------------------ Pruebas de lectura ------------------------ */
 
@@ -560,6 +719,218 @@ prueba('DELETE /grupos inexistente devuelve 404', function () {
 prueba('Método no permitido devuelve 405', function () {
     $respuesta = api('POST', 'tipo=alumnos&_method=INVALIDO');
     afirmarEstado($respuesta, 405);
+});
+
+/* --------------------- Sesión y documentación ----------------------- */
+
+prueba('La página de login está disponible', function () {
+    $respuesta = web('login.php');
+    afirmarEstado($respuesta, 200);
+    afirmarContiene('Iniciar sesión', $respuesta['raw'], 'Debe mostrarse el formulario.');
+    afirmarContiene('name="csrf"', $respuesta['raw'], 'El formulario debe incluir CSRF.');
+});
+
+prueba('Las páginas protegidas redirigen al login', function () {
+    foreach (['lista_alumnos.php', 'lista_grupos.php', 'crear_alumno.php'] as $pagina) {
+        $respuesta = web($pagina);
+        afirmarEstado($respuesta, 302);
+        afirmarContiene('login.php', $respuesta['headers']['location'] ?? '', "{$pagina} debe redirigir al login.");
+    }
+});
+
+prueba('El login rechaza una contraseña incorrecta', function () {
+    $cookies = archivoCookies('login_malo');
+
+    try {
+        $pagina = web('login.php', ['cookies' => $cookies]);
+        $csrf = csrfDePagina($pagina['raw']);
+
+        $respuesta = web('login.php', [
+            'metodo' => 'POST',
+            'cuerpo' => ['csrf' => $csrf, 'usuario' => 'ricardo', 'password' => 'incorrecta'],
+            'cookies' => $cookies,
+        ]);
+
+        afirmarEstado($respuesta, 200);
+        afirmarContiene('Usuario o contraseña incorrectos', $respuesta['raw'], 'Debe mostrar el error.');
+    } finally {
+        @unlink($cookies);
+    }
+});
+
+prueba('El administrador inicia sesión y conserva los permisos de escritura', function () {
+    $cookies = archivoCookies('login_admin');
+    $grupoId = 0;
+
+    try {
+        $pagina = web('login.php', ['cookies' => $cookies]);
+        $csrf = csrfDePagina($pagina['raw']);
+
+        $login = web('login.php', [
+            'metodo' => 'POST',
+            'cuerpo' => ['csrf' => $csrf, 'usuario' => 'ricardo', 'password' => '1211'],
+            'cookies' => $cookies,
+        ]);
+
+        afirmarEstado($login, 302);
+        afirmarContiene('lista_alumnos.php', $login['headers']['location'] ?? '', 'Debe entrar al sistema.');
+
+        $lista = web('lista_alumnos.php', ['cookies' => $cookies]);
+        afirmarEstado($lista, 200);
+        afirmarContiene('Ricardo', $lista['raw'], 'Debe mostrar el usuario autenticado.');
+        afirmarContiene('Salir', $lista['raw'], 'Debe ofrecer cerrar sesión.');
+
+        $creacion = web('endpoints.php?tipo=grupos', [
+            'metodo' => 'POST',
+            'cuerpo' => ['grupo' => 'TEST-API-SESION-' . substr(md5(uniqid('', true)), 0, 6)],
+            'contenido' => 'application/json',
+            'cookies' => $cookies,
+        ]);
+
+        afirmarEstado($creacion, 201);
+        $grupoId = (int) (($creacion['data']['id'] ?? 0));
+
+        $eliminacion = web('endpoints.php?tipo=grupos&id=' . $grupoId, [
+            'metodo' => 'DELETE',
+            'cookies' => $cookies,
+        ]);
+        afirmarEstado($eliminacion, 200);
+        $grupoId = 0;
+    } finally {
+        if ($grupoId > 0) {
+            web('endpoints.php?tipo=grupos&id=' . $grupoId, [
+                'metodo' => 'DELETE',
+                'cookies' => $cookies,
+            ]);
+        }
+
+        @unlink($cookies);
+    }
+});
+
+prueba('La sesión de consulta solo puede leer', function () {
+    $cookies = archivoCookies('login_consulta');
+
+    try {
+        $pagina = web('login.php', ['cookies' => $cookies]);
+        $csrf = csrfDePagina($pagina['raw']);
+
+        $login = web('login.php', [
+            'metodo' => 'POST',
+            'cuerpo' => ['csrf' => $csrf, 'usuario' => 'profesor', 'password' => '1212'],
+            'cookies' => $cookies,
+        ]);
+        afirmarEstado($login, 302);
+
+        $lista = web('lista_alumnos.php', ['cookies' => $cookies]);
+        afirmarEstado($lista, 200);
+        afirmarContiene('Modo consulta', $lista['raw'], 'Debe indicar el modo de solo lectura.');
+
+        $lectura = web('endpoints.php?tipo=alumnos', ['cookies' => $cookies]);
+        afirmarEstado($lectura, 200);
+
+        $escritura = web('endpoints.php?tipo=grupos', [
+            'metodo' => 'POST',
+            'cuerpo' => ['grupo' => 'TEST-API-CONSULTA'],
+            'contenido' => 'application/json',
+            'cookies' => $cookies,
+        ]);
+        afirmarEstado($escritura, 403);
+        afirmarIgual(false, $escritura['data']['ok'] ?? null, 'Debe indicar ok=false.');
+
+        $formulario = web('crear_grupo.php', ['cookies' => $cookies]);
+        afirmarEstado($formulario, 302);
+        afirmarContiene('sin_permiso', $formulario['headers']['location'] ?? '', 'Debe bloquear el formulario.');
+    } finally {
+        @unlink($cookies);
+    }
+});
+
+prueba('Cerrar sesión vuelve al login', function () {
+    $cookies = archivoCookies('login_logout');
+
+    try {
+        $pagina = web('login.php', ['cookies' => $cookies]);
+        $csrf = csrfDePagina($pagina['raw']);
+
+        web('login.php', [
+            'metodo' => 'POST',
+            'cuerpo' => ['csrf' => $csrf, 'usuario' => 'ricardo', 'password' => '1211'],
+            'cookies' => $cookies,
+        ]);
+
+        $lista = web('lista_alumnos.php', ['cookies' => $cookies]);
+        $csrfSesion = csrfDePagina($lista['raw']);
+
+        $salida = web('logout.php', [
+            'metodo' => 'POST',
+            'cuerpo' => ['csrf' => $csrfSesion],
+            'cookies' => $cookies,
+        ]);
+        afirmarEstado($salida, 302);
+        afirmarContiene('login.php', $salida['headers']['location'] ?? '', 'Debe volver al login.');
+
+        $despues = web('lista_alumnos.php', ['cookies' => $cookies]);
+        afirmarEstado($despues, 302);
+        afirmarContiene('login.php', $despues['headers']['location'] ?? '', 'La sesión debe estar cerrada.');
+    } finally {
+        @unlink($cookies);
+    }
+});
+
+prueba('El contrato OpenAPI exige token', function () {
+    $respuesta = web('docs/openapi.php');
+    afirmarEstado($respuesta, 403);
+    afirmarIgual(false, $respuesta['data']['ok'] ?? null, 'Debe indicar ok=false.');
+});
+
+prueba('La documentación pide un token y rechaza los inválidos', function () {
+    $pagina = web('docs/index.php');
+    afirmarEstado($pagina, 200);
+    afirmarContiene('Token de acceso', $pagina['raw'], 'Debe pedir el token.');
+
+    $invalido = web('docs/index.php?token=token-invalido');
+    afirmarEstado($invalido, 200);
+    afirmarContiene('Token inválido', $invalido['raw'], 'Debe rechazar el token incorrecto.');
+});
+
+prueba('El token válido abre Swagger y el contrato', function () {
+    global $apiToken;
+
+    $cookies = archivoCookies('docs_token');
+
+    try {
+        $acceso = web('docs/index.php?token=' . urlencode($apiToken), ['cookies' => $cookies]);
+        afirmarEstado($acceso, 302);
+
+        $pagina = web('docs/index.php', ['cookies' => $cookies]);
+        afirmarEstado($pagina, 200);
+        afirmarContiene('swagger-ui-bundle.js', $pagina['raw'], 'Debe cargar Swagger UI.');
+        afirmarContiene('openapi.php', $pagina['raw'], 'Debe cargar el contrato protegido.');
+
+        $contrato = web('docs/openapi.php', ['cookies' => $cookies]);
+        afirmarEstado($contrato, 200);
+        afirmarIgual('3.0.3', $contrato['data']['openapi'] ?? null, 'Debe entregar el contrato OpenAPI.');
+        afirmarIgual(
+            5,
+            count($contrato['data']['paths']['/endpoints.php'] ?? []),
+            'El contrato debe documentar los 5 métodos.'
+        );
+
+        $salida = web('docs/index.php?salir=1', ['cookies' => $cookies]);
+        afirmarEstado($salida, 302);
+
+        $cerrado = web('docs/openapi.php', ['cookies' => $cookies]);
+        afirmarEstado($cerrado, 403);
+    } finally {
+        @unlink($cookies);
+    }
+});
+
+prueba('El archivo de datos del contrato no se imprime directamente', function () {
+    $respuesta = web('docs/openapi_data.php');
+    afirmarEstado($respuesta, 200);
+    afirmarIgual('', trim($respuesta['raw']), 'No debe exponer el contrato sin autorización.');
 });
 
 /* ----------------------------- Resumen ------------------------------ */

@@ -13,6 +13,12 @@ function mostrarMensaje(texto, esError = false) {
 
 async function peticionJSON(url, opciones = {}) {
     const respuesta = await fetch(url, opciones);
+
+    if (respuesta.status === 401) {
+        window.location.href = "login.php";
+        throw new Error("Tu sesión expiró. Inicia sesión de nuevo.");
+    }
+
     let datos;
 
     try {

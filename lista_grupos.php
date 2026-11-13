@@ -1,3 +1,12 @@
+<?php
+require_once __DIR__ . '/auth.php';
+
+$usuarioActual = requiereSesion();
+$esAdmin = esAdmin();
+$mensajeAviso = (($_GET["error"] ?? "") === "sin_permiso")
+    ? "No tienes permisos para realizar esa acción."
+    : "";
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -12,7 +21,16 @@
         <nav>
             <a href="lista_alumnos.php">Alumnos</a>
             <a class="activo" href="lista_grupos.php">Grupos</a>
-            <a href="docs/index.html" target="_blank" rel="noopener">API (Swagger)</a>
+            <div class="usuario-nav">
+                <span class="usuario-nombre">
+                    <?= htmlspecialchars($usuarioActual["nombre"]) ?>
+                    <span class="rol"><?= htmlspecialchars($usuarioActual["rol"]) ?></span>
+                </span>
+                <form method="post" action="logout.php">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrfToken()) ?>">
+                    <button type="submit" class="btn-salir">Salir</button>
+                </form>
+            </div>
         </nav>
     </header>
 
@@ -20,8 +38,16 @@
         <section class="card">
             <div class="barra">
                 <h2>Lista de Grupos</h2>
-                <a class="btn btn-primario" href="crear_grupo.php">Agregar Grupo</a>
+                <?php if ($esAdmin): ?>
+                    <a class="btn btn-primario" href="crear_grupo.php">Agregar Grupo</a>
+                <?php else: ?>
+                    <span class="badge-consulta">Modo consulta</span>
+                <?php endif; ?>
             </div>
+
+            <?php if ($mensajeAviso !== ""): ?>
+                <p class="mensaje error"><?= htmlspecialchars($mensajeAviso) ?></p>
+            <?php endif; ?>
 
             <p id="mensaje" class="mensaje" hidden></p>
 
@@ -44,6 +70,7 @@
     <script>
         const tabla = document.getElementById("tabla");
         const vacio = document.getElementById("vacio");
+        const esAdmin = <?= $esAdmin ? "true" : "false" ?>;
 
         async function cargarGruposLista() {
             try {
@@ -68,6 +95,16 @@
 
                     const acciones = document.createElement("td");
                     acciones.className = "acciones";
+
+                    if (!esAdmin) {
+                        const soloLectura = document.createElement("span");
+                        soloLectura.className = "texto-suave";
+                        soloLectura.textContent = "Solo lectura";
+                        acciones.appendChild(soloLectura);
+                        fila.append(celdaGrupo, celdaTotal, acciones);
+                        tabla.appendChild(fila);
+                        return;
+                    }
 
                     const editar = document.createElement("a");
                     editar.className = "btn btn-editar";

@@ -2,6 +2,8 @@
 
 header("Content-Type: application/json; charset=utf-8");
 
+require_once __DIR__ . '/auth.php';
+
 $config = require __DIR__ . '/config/database.php';
 
 $conexion = @mysqli_connect(
@@ -586,6 +588,12 @@ $metodo = metodoSolicitado($cuerpo);
 $recurso = recursoSolicitado();
 $id = idSolicitado();
 $accion = accionSolicitada();
+
+$autenticacion = autorizarApi();
+
+if ($metodo !== "GET") {
+    requiereAdminApi($autenticacion);
+}
 
 switch ($recurso) {
     case "alumnos":

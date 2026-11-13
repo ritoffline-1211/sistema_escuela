@@ -1,0 +1,958 @@
+<?php
+
+// Datos del contrato OpenAPI. Si se solicita directamente no imprime nada.
+return <<<'OPENAPI_JSON'
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "API Escuela",
+        "version": "1.0.0",
+        "description": "API REST del CRUD de **alumnos** y **grupos** de la base de datos `escuela`.\n\n- **Base URL:** `http://localhost/escuela`\n- **Formato:** JSON (`application/json`) y formularios (`application/x-www-form-urlencoded`)\n- **Autenticación obligatoria:** sesión del sistema o token de API\n- **Roles:** `admin` puede leer y escribir; `consulta` solo puede leer. El token siempre tiene permisos de administrador.\n- Las altas y ediciones se ejecutan mediante stored procedures con transacción.\n- El duplicado de alumno se invoca con `POST endpoints.php?tipo=alumnos&id=1&accion=duplicar`.\n\nEnvía el token con `Authorization: Bearer <token>`, con la cabecera `X-API-Token: <token>` o con `?token=<token>`. Sin autenticación la API responde `401`.\n\nLas pruebas automáticas están en `tests/api_test.php`.",
+        "contact": {
+            "name": "Proyecto CRUD Escuela"
+        }
+    },
+    "servers": [
+        {
+            "url": "/escuela",
+            "description": "Servidor local de XAMPP"
+        }
+    ],
+    "security": [
+        {
+            "bearerAuth": []
+        },
+        {
+            "apiToken": []
+        }
+    ],
+    "tags": [
+        {
+            "name": "Consultas",
+            "description": "Lecturas de alumnos y grupos."
+        },
+        {
+            "name": "Escrituras",
+            "description": "Altas, ediciones, eliminaciones y duplicado."
+        }
+    ],
+    "paths": {
+        "/endpoints.php": {
+            "get": {
+                "tags": [
+                    "Consultas"
+                ],
+                "summary": "Listar alumnos/grupos u obtener uno por id",
+                "operationId": "listarUObtener",
+                "description": "Sin `id` devuelve la lista completa del recurso. Con `id` devuelve un único registro.\n\n- `tipo=alumnos` incluye el nombre del grupo de cada alumno.\n- `tipo=grupos` incluye `total_alumnos`.\n- Si se omite `tipo`, se usan los alumnos por compatibilidad.",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Tipo"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Id"
+                    }
+                ],
+                "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/NoAutorizado"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/SinPermiso"
+                    },
+                    "200": {
+                        "description": "Lista de registros o registro individual.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/Alumno"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/Grupo"
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/Alumno"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/Grupo"
+                                        }
+                                    ]
+                                },
+                                "examples": {
+                                    "listaAlumnos": {
+                                        "summary": "Lista de alumnos",
+                                        "value": [
+                                            {
+                                                "IdAlumnos": "1",
+                                                "nombre": "Juan Perez",
+                                                "matricula": "001",
+                                                "grado": "Primero",
+                                                "IdGrupos": "1",
+                                                "grupo": "Grupo A"
+                                            }
+                                        ]
+                                    },
+                                    "listaGrupos": {
+                                        "summary": "Lista de grupos",
+                                        "value": [
+                                            {
+                                                "IdGrupos": "1",
+                                                "grupo": "Grupo A",
+                                                "total_alumnos": "2"
+                                            }
+                                        ]
+                                    },
+                                    "alumno": {
+                                        "summary": "Alumno individual",
+                                        "value": {
+                                            "IdAlumnos": "1",
+                                            "nombre": "Juan Perez",
+                                            "matricula": "001",
+                                            "grado": "Primero",
+                                            "IdGrupos": "1",
+                                            "grupo": "Grupo A"
+                                        }
+                                    },
+                                    "grupo": {
+                                        "summary": "Grupo individual",
+                                        "value": {
+                                            "IdGrupos": "1",
+                                            "grupo": "Grupo A",
+                                            "total_alumnos": "2"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NoEncontrado"
+                    },
+                    "500": {
+                        "$ref": "#/components/responses/ErrorInterno"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Escrituras"
+                ],
+                "summary": "Crear un alumno, crear un grupo o duplicar un alumno",
+                "operationId": "crearODuplicar",
+                "description": "Comportamiento según los parámetros:\n\n| Parámetros | Acción |\n| --- | --- |\n| `tipo=alumnos` + cuerpo | Crea un alumno |\n| `tipo=alumnos&id=1&accion=duplicar` | Duplica el alumno `1` |\n| `tipo=grupos` + cuerpo | Crea un grupo |\n\nEl duplicado no requiere cuerpo. Conserva grado y grupo, añade ` (copia)` al nombre y genera una matrícula `COPIA-<origen>-<nuevo>`.\n\nTambién se puede usar `_method=PUT`, `_method=PATCH` o `_method=DELETE` para emular esos métodos desde un `POST`.",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Tipo"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Id"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Accion"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Metodo"
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "description": "Cuerpo para crear un alumno o un grupo. No se necesita para duplicar ni cuando se usa `_method`.",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/AlumnoInput"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/GrupoInput"
+                                    }
+                                ]
+                            },
+                            "examples": {
+                                "crearAlumno": {
+                                    "summary": "Crear alumno",
+                                    "value": {
+                                        "nombre": "Juan Perez",
+                                        "matricula": "001",
+                                        "grado": "Primero",
+                                        "IdGrupos": 1
+                                    }
+                                },
+                                "crearGrupo": {
+                                    "summary": "Crear grupo",
+                                    "value": {
+                                        "grupo": "Grupo A"
+                                    }
+                                }
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/AlumnoInput"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/GrupoInput"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/NoAutorizado"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/SinPermiso"
+                    },
+                    "201": {
+                        "$ref": "#/components/responses/Creado"
+                    },
+                    "200": {
+                        "$ref": "#/components/responses/Ok"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ErrorValidacion"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NoEncontrado"
+                    },
+                    "405": {
+                        "$ref": "#/components/responses/MetodoNoPermitido"
+                    },
+                    "500": {
+                        "$ref": "#/components/responses/ErrorInterno"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Escrituras"
+                ],
+                "summary": "Actualizar un alumno o un grupo",
+                "operationId": "actualizar",
+                "description": "Actualiza el registro indicado por `id`. Los campos omitidos conservan su valor actual. Para un alumno se validan nombre, matrícula, grado y grupo; para un grupo, el nombre.",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Tipo"
+                    },
+                    {
+                        "$ref": "#/components/parameters/IdRequerido"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Metodo"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/AlumnoInput"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/GrupoInput"
+                                    }
+                                ]
+                            },
+                            "examples": {
+                                "actualizarAlumno": {
+                                    "summary": "Actualizar alumno",
+                                    "value": {
+                                        "nombre": "Juan Perez",
+                                        "matricula": "001",
+                                        "grado": "Segundo",
+                                        "IdGrupos": 1
+                                    }
+                                },
+                                "actualizarGrupo": {
+                                    "summary": "Actualizar grupo",
+                                    "value": {
+                                        "grupo": "Grupo A"
+                                    }
+                                }
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/AlumnoInput"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/GrupoInput"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/NoAutorizado"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/SinPermiso"
+                    },
+                    "200": {
+                        "$ref": "#/components/responses/Ok"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ErrorValidacion"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NoEncontrado"
+                    },
+                    "500": {
+                        "$ref": "#/components/responses/ErrorInterno"
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "Escrituras"
+                ],
+                "summary": "Actualizar parcialmente un alumno o un grupo",
+                "operationId": "actualizarParcial",
+                "description": "Actualiza solo los campos enviados. Los campos omitidos conservan su valor actual. Es el método recomendado para cambios puntuales, por ejemplo `{ \"grado\": \"Tercero\" }`.",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Tipo"
+                    },
+                    {
+                        "$ref": "#/components/parameters/IdRequerido"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Metodo"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/AlumnoParcial"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/GrupoParcial"
+                                    }
+                                ]
+                            },
+                            "examples": {
+                                "cambiarGrado": {
+                                    "summary": "Cambiar solo el grado de un alumno",
+                                    "value": {
+                                        "grado": "Tercero"
+                                    }
+                                },
+                                "cambiarNombreGrupo": {
+                                    "summary": "Cambiar solo el nombre de un grupo",
+                                    "value": {
+                                        "grupo": "Grupo B"
+                                    }
+                                }
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/AlumnoParcial"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/GrupoParcial"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/NoAutorizado"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/SinPermiso"
+                    },
+                    "200": {
+                        "$ref": "#/components/responses/Ok"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ErrorValidacion"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NoEncontrado"
+                    },
+                    "500": {
+                        "$ref": "#/components/responses/ErrorInterno"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Escrituras"
+                ],
+                "summary": "Eliminar un alumno o un grupo",
+                "operationId": "eliminar",
+                "description": "Elimina el registro indicado por `id`. No se puede eliminar un grupo que todavía tiene alumnos asignados: en ese caso responde `409`.",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Tipo"
+                    },
+                    {
+                        "$ref": "#/components/parameters/IdRequerido"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Metodo"
+                    }
+                ],
+                "responses": {
+                    "401": {
+                        "$ref": "#/components/responses/NoAutorizado"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/SinPermiso"
+                    },
+                    "200": {
+                        "$ref": "#/components/responses/Ok"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ErrorValidacion"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NoEncontrado"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflicto"
+                    },
+                    "500": {
+                        "$ref": "#/components/responses/ErrorInterno"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "Token de API en la cabecera `Authorization: Bearer <token>`."
+            },
+            "apiToken": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Token",
+                "description": "Token de API en la cabecera `X-API-Token`."
+            }
+        },
+        "parameters": {
+            "Tipo": {
+                "name": "tipo",
+                "in": "query",
+                "required": true,
+                "description": "Recurso a operar. Si se omite en `GET`, se usan los alumnos por compatibilidad.",
+                "schema": {
+                    "type": "string",
+                    "enum": [
+                        "alumnos",
+                        "grupos"
+                    ],
+                    "default": "alumnos"
+                }
+            },
+            "Id": {
+                "name": "id",
+                "in": "query",
+                "required": false,
+                "description": "Identificador del recurso. Obligatorio para `GET` de un registro, `PUT`, `PATCH`, `DELETE` y para duplicar.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 1
+                }
+            },
+            "IdRequerido": {
+                "name": "id",
+                "in": "query",
+                "required": true,
+                "description": "Identificador del registro que se va a modificar o eliminar.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 1
+                }
+            },
+            "Accion": {
+                "name": "accion",
+                "in": "query",
+                "required": false,
+                "description": "Solo para `POST` con `tipo=alumnos`. `duplicar` crea una copia del alumno indicado en `id`.",
+                "schema": {
+                    "type": "string",
+                    "enum": [
+                        "duplicar"
+                    ]
+                }
+            },
+            "Metodo": {
+                "name": "_method",
+                "in": "query",
+                "required": false,
+                "description": "Permite emular `PUT`, `PATCH` o `DELETE` desde un `POST`, útil para formularios o clientes que no envían esos métodos.",
+                "schema": {
+                    "type": "string",
+                    "enum": [
+                        "PUT",
+                        "PATCH",
+                        "DELETE"
+                    ]
+                }
+            }
+        },
+        "schemas": {
+            "Alumno": {
+                "type": "object",
+                "description": "Alumno tal como lo devuelve la API. Los identificadores llegan como cadenas desde MySQL.",
+                "properties": {
+                    "IdAlumnos": {
+                        "type": "string",
+                        "example": "1"
+                    },
+                    "nombre": {
+                        "type": "string",
+                        "example": "Juan Perez"
+                    },
+                    "matricula": {
+                        "type": "string",
+                        "example": "001"
+                    },
+                    "grado": {
+                        "type": "string",
+                        "example": "Primero"
+                    },
+                    "IdGrupos": {
+                        "type": "string",
+                        "nullable": true,
+                        "example": "1"
+                    },
+                    "grupo": {
+                        "type": "string",
+                        "nullable": true,
+                        "example": "Grupo A"
+                    }
+                },
+                "required": [
+                    "IdAlumnos",
+                    "nombre",
+                    "matricula",
+                    "grado",
+                    "IdGrupos",
+                    "grupo"
+                ]
+            },
+            "Grupo": {
+                "type": "object",
+                "description": "Grupo tal como lo devuelve la API, con el total de alumnos asignados.",
+                "properties": {
+                    "IdGrupos": {
+                        "type": "string",
+                        "example": "1"
+                    },
+                    "grupo": {
+                        "type": "string",
+                        "example": "Grupo A"
+                    },
+                    "total_alumnos": {
+                        "type": "string",
+                        "example": "2"
+                    }
+                },
+                "required": [
+                    "IdGrupos",
+                    "grupo",
+                    "total_alumnos"
+                ]
+            },
+            "AlumnoInput": {
+                "type": "object",
+                "description": "Datos para crear o actualizar un alumno.",
+                "properties": {
+                    "nombre": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "example": "Juan Perez"
+                    },
+                    "matricula": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "example": "001"
+                    },
+                    "grado": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "example": "Primero"
+                    },
+                    "IdGrupos": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Identificador de un grupo existente.",
+                        "example": 1
+                    },
+                    "_method": {
+                        "type": "string",
+                        "enum": [
+                            "PUT",
+                            "PATCH",
+                            "DELETE"
+                        ],
+                        "description": "Alternativa a enviar `_method` en la query string."
+                    }
+                },
+                "required": [
+                    "nombre",
+                    "matricula",
+                    "grado",
+                    "IdGrupos"
+                ]
+            },
+            "GrupoInput": {
+                "type": "object",
+                "description": "Datos para crear o actualizar un grupo.",
+                "properties": {
+                    "grupo": {
+                        "type": "string",
+                        "maxLength": 50,
+                        "example": "Grupo A"
+                    },
+                    "_method": {
+                        "type": "string",
+                        "enum": [
+                            "PUT",
+                            "PATCH",
+                            "DELETE"
+                        ],
+                        "description": "Alternativa a enviar `_method` en la query string."
+                    }
+                },
+                "required": [
+                    "grupo"
+                ]
+            },
+            "AlumnoParcial": {
+                "type": "object",
+                "description": "Campos opcionales para actualizar parcialmente un alumno. Los omitidos conservan su valor actual.",
+                "properties": {
+                    "nombre": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "example": "Juan Perez"
+                    },
+                    "matricula": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "example": "001"
+                    },
+                    "grado": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "example": "Tercero"
+                    },
+                    "IdGrupos": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Identificador de un grupo existente.",
+                        "example": 1
+                    },
+                    "_method": {
+                        "type": "string",
+                        "enum": [
+                            "PUT",
+                            "PATCH",
+                            "DELETE"
+                        ],
+                        "description": "Alternativa a enviar `_method` en la query string."
+                    }
+                }
+            },
+            "GrupoParcial": {
+                "type": "object",
+                "description": "Campos opcionales para actualizar parcialmente un grupo. El omitido conserva su valor actual.",
+                "properties": {
+                    "grupo": {
+                        "type": "string",
+                        "maxLength": 50,
+                        "example": "Grupo B"
+                    },
+                    "_method": {
+                        "type": "string",
+                        "enum": [
+                            "PUT",
+                            "PATCH",
+                            "DELETE"
+                        ],
+                        "description": "Alternativa a enviar `_method` en la query string."
+                    }
+                }
+            },
+            "RespuestaCreada": {
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "mensaje": {
+                        "type": "string",
+                        "example": "Alumno registrado correctamente."
+                    },
+                    "id": {
+                        "type": "integer",
+                        "example": 5
+                    }
+                },
+                "required": [
+                    "ok",
+                    "mensaje",
+                    "id"
+                ]
+            },
+            "RespuestaOk": {
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "mensaje": {
+                        "type": "string",
+                        "example": "Alumno actualizado correctamente."
+                    }
+                },
+                "required": [
+                    "ok",
+                    "mensaje"
+                ]
+            },
+            "ErrorValidacion": {
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "mensaje": {
+                        "type": "string",
+                        "example": "Revisa los datos del alumno."
+                    },
+                    "errores": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            "El nombre es obligatorio.",
+                            "La matrícula es obligatoria."
+                        ]
+                    }
+                },
+                "required": [
+                    "ok",
+                    "mensaje",
+                    "errores"
+                ]
+            },
+            "ErrorSimple": {
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "mensaje": {
+                        "type": "string",
+                        "example": "Alumno no encontrado."
+                    }
+                },
+                "required": [
+                    "ok",
+                    "mensaje"
+                ]
+            }
+        },
+        "responses": {
+            "Ok": {
+                "description": "Operación correcta.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/RespuestaOk"
+                        },
+                        "examples": {
+                            "actualizado": {
+                                "summary": "Registro actualizado",
+                                "value": {
+                                    "ok": true,
+                                    "mensaje": "Alumno actualizado correctamente."
+                                }
+                            },
+                            "eliminado": {
+                                "summary": "Registro eliminado",
+                                "value": {
+                                    "ok": true,
+                                    "mensaje": "Alumno eliminado correctamente."
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Creado": {
+                "description": "Recurso creado o duplicado correctamente.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/RespuestaCreada"
+                        },
+                        "examples": {
+                            "alumnoCreado": {
+                                "summary": "Alumno creado",
+                                "value": {
+                                    "ok": true,
+                                    "mensaje": "Alumno registrado correctamente.",
+                                    "id": 5
+                                }
+                            },
+                            "grupoCreado": {
+                                "summary": "Grupo creado",
+                                "value": {
+                                    "ok": true,
+                                    "mensaje": "Grupo registrado correctamente.",
+                                    "id": 3
+                                }
+                            },
+                            "alumnoDuplicado": {
+                                "summary": "Alumno duplicado",
+                                "value": {
+                                    "ok": true,
+                                    "mensaje": "Alumno duplicado correctamente.",
+                                    "id": 6
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "ErrorValidacion": {
+                "description": "Datos inválidos o incompletos.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorValidacion"
+                        }
+                    }
+                }
+            },
+            "NoEncontrado": {
+                "description": "Recurso o acción no encontrado.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorSimple"
+                        },
+                        "example": {
+                            "ok": false,
+                            "mensaje": "Alumno no encontrado."
+                        }
+                    }
+                }
+            },
+            "Conflicto": {
+                "description": "Conflicto con las reglas de negocio, por ejemplo eliminar un grupo con alumnos asignados.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorSimple"
+                        },
+                        "example": {
+                            "ok": false,
+                            "mensaje": "No se puede eliminar el grupo porque tiene alumnos asignados."
+                        }
+                    }
+                }
+            },
+            "MetodoNoPermitido": {
+                "description": "Método HTTP no permitido para el recurso.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorSimple"
+                        },
+                        "example": {
+                            "ok": false,
+                            "mensaje": "Método no permitido."
+                        }
+                    }
+                }
+            },
+            "ErrorInterno": {
+                "description": "Error de base de datos o de conexión.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorSimple"
+                        },
+                        "example": {
+                            "ok": false,
+                            "mensaje": "Error al procesar la operación."
+                        }
+                    }
+                }
+            },
+            "NoAutorizado": {
+                "description": "Falta la autenticación o el token no es válido.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorSimple"
+                        },
+                        "example": {
+                            "ok": false,
+                            "mensaje": "No autorizado. Inicia sesión o envía un token válido."
+                        }
+                    }
+                }
+            },
+            "SinPermiso": {
+                "description": "La sesión es de solo lectura (`consulta`) y la operación modifica datos.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/ErrorSimple"
+                        },
+                        "example": {
+                            "ok": false,
+                            "mensaje": "No tienes permisos para modificar datos."
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+OPENAPI_JSON;
