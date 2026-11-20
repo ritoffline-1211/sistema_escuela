@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnRisky="true"
+         displayDetailsOnTestsThatTriggerWarnings="true">
+    <php>
+        <!-- Entorno de prueba forzado: imposible apuntar a la DB real por accidente. -->
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="DB_HOST" value="127.0.0.1" force="true"/>
+        <env name="DB_PORT" value="3306" force="true"/>
+        <env name="DB_NAME" value="testing" force="true"/>
+        <env name="DB_USER" value="test" force="true"/>
+        <env name="DB_PASS" value="test" force="true"/>
+        <env name="TEST_BASE_URL" value="http://127.0.0.1:8000"/>
+    </php>
+    <testsuites>
+        <testsuite name="Escuela">
+            <directory>tests/Unit</directory>
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">.</directory>
+        </include>
+        <exclude>
+            <directory>vendor</directory>
+            <directory>tests</directory>
+            <directory>docs/swagger-ui</directory>
+        </exclude>
+    </source>
+</phpunit>

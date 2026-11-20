@@ -20,29 +20,71 @@ CRUD completo de **alumnos** y **grupos** sobre PHP + MySQL (XAMPP), manteniendo
    C:\xampp\php\php.exe migrate.php
    ```
 
-4. Abre `http://localhost/escuela/`.
+4. Abre `http://localhost/escuela/` e inicia sesión.
 
-`index.php` redirige a `lista_alumnos.php`. Las migraciones crean la base `escuela`, las tablas y el historial de migraciones.
+`index.php` redirige a `login.php` si no hay sesión; después del inicio de sesión va a `lista_alumnos.php`. Las migraciones crean la base `escuela`, las tablas y el historial de migraciones.
+
+## Autenticación y usuarios
+
+El sistema usa sesiones PHP (`escuela_sesion`). Todas las páginas están protegidas: al entrar sin sesión se redirige a `login.php`. El formulario incluye protección CSRF y las contraseñas se guardan con `password_hash()` (bcrypt).
+
+Usuarios creados por la migración `008_usuarios.sql`:
+
+| Usuario | Contraseña | Rol | Permisos |
+| --- | --- | --- | --- |
+| `ricardo` | `1211` | `admin` | CRUD completo |
+| `profesor` | `1212` | `consulta` | Solo lectura |
+
+El rol `consulta` ve los listados en **Modo consulta**, no ve los botones de alta/edición/eliminación, no puede abrir los formularios y la API le responde `403` si intenta modificar datos. El botón **Salir** cierra la sesión (`logout.php`).
+
+### Token de la API y de la documentación
+
+La API exige autenticación: acepta la sesión del navegador o un token especial. El token por defecto es:
+
+```text
+442e35cdf0b4225362746e3f8e7a17d4a393b25d2495a628
+```
+
+Se puede cambiar con la variable de entorno `API_TOKEN` o editando `config/auth.php`. El token se puede enviar de tres formas:
+
+```bash
+curl -H "Authorization: Bearer 442e35cdf0b4225362746e3f8e7a17d4a393b25d2495a628" \
+  "http://localhost/escuela/endpoints.php?tipo=alumnos"
+
+curl -H "X-API-Token: 442e35cdf0b4225362746e3f8e7a17d4a393b25d2495a628" \
+  "http://localhost/escuela/endpoints.php?tipo=alumnos"
+
+curl "http://localhost/escuela/endpoints.php?tipo=alumnos&token=442e35cdf0b4225362746e3f8e7a17d4a393b25d2495a628"
+```
+
+Sin sesión ni token, la API responde `401`. El token siempre actúa como administrador.
 
 ## Documentación de la API (Swagger)
 
-La API está documentada con OpenAPI 3.0.3 y se puede explorar y probar desde Swagger UI:
+La API está documentada con OpenAPI 3.0.3. **No hay enlace a Swagger en el frontend**: solo se puede abrir con el token:
 
 ```text
-http://localhost/escuela/docs/index.html
+http://localhost/escuela/docs/index.php
 ```
 
-También hay un enlace **API (Swagger)** en la barra de navegación del sistema.
+Entra con el token desde el formulario o directamente:
+
+```text
+http://localhost/escuela/docs/index.php?token=442e35cdf0b4225362746e3f8e7a17d4a393b25d2495a628
+```
+
+El token queda guardado en la sesión y Swagger envía las cabeceras de autorización automáticamente en **Try it out**. **Cerrar acceso** lo elimina de la sesión. Sin token, `docs/openapi.php` responde `403` y el contrato no se expone.
 
 Archivos:
 
 | Archivo | Descripción |
 | --- | --- |
-| `docs/openapi.json` | Contrato OpenAPI con todos los endpoints, parámetros, esquemas y ejemplos |
-| `docs/index.html` | Página que monta Swagger UI |
+| `docs/index.php` | Formulario de token y página que monta Swagger UI |
+| `docs/openapi.php` | Entrega el contrato solo si la sesión tiene un token válido |
+| `docs/openapi_data.php` | Contrato OpenAPI almacenado; no imprime nada si se pide directamente |
 | `docs/swagger-ui/` | JavaScript y CSS de Swagger UI servidos localmente (no requiere CDN) |
 
-Desde Swagger UI puedes usar **Try it out** para ejecutar cada operación contra `http://localhost/escuela/endpoints.php`. Ten en cuenta que:
+Ten en cuenta que:
 
 - `tipo` es obligatorio y acepta `alumnos` o `grupos`.
 - `id` es necesario para consultar un registro, editar, eliminar y duplicar.
@@ -54,10 +96,12 @@ Desde Swagger UI puedes usar **Try it out** para ejecutar cada operación contra
 ```text
 escuela/
 ├── config/
+│   ├── auth.php           # Token de la API y nombre de la sesión
 │   └── database.php       # Configuración de conexión a MySQL
 ├── docs/
-│   ├── index.html         # Swagger UI
-│   ├── openapi.json       # Contrato OpenAPI 3.0.3
+│   ├── index.php          # Acceso por token y Swagger UI
+│   ├── openapi.php        # Contrato OpenAPI protegido
+│   ├── openapi_data.php   # Datos del contrato OpenAPI 3.0.3
 │   └── swagger-ui/        # Assets locales de Swagger UI
 ├── migrations/
 │   ├── 001_create_grupos.sql
@@ -66,21 +110,25 @@ escuela/
 │   ├── 004_sp_actualizar_alumno.sql
 │   ├── 005_sp_crear_grupo.sql
 │   ├── 006_sp_actualizar_grupo.sql
-│   └── 007_sp_duplicar_alumno.sql
+│   ├── 007_sp_duplicar_alumno.sql
+│   └── 008_usuarios.sql   # Tabla de usuarios y cuentas iniciales
 ├── migrate.php            # Runner de migraciones (up / status)
-├── endpoints.php          # API REST (alumnos y grupos)
-├── index.php              # Redirección a la lista de alumnos
+├── auth.php               # Sesión, CSRF, login, token y autorización
+├── login.php              # Formulario de inicio de sesión
+├── logout.php             # Cierre de sesión con CSRF
+├── endpoints.php          # API REST protegida (alumnos y grupos)
+├── index.php              # Redirección según la sesión
 ├── lista_alumnos.php      # Listado, edición y eliminación de alumnos
-├── crear_alumno.php       # Alta de alumno
-├── editar_alumno.php      # Edición de alumno (?id=)
+├── crear_alumno.php       # Alta de alumno (solo admin)
+├── editar_alumno.php      # Edición de alumno (?id=, solo admin)
 ├── lista_grupos.php       # Listado, edición y eliminación de grupos
-├── crear_grupo.php        # Alta de grupo
-├── editar_grupo.php       # Edición de grupo (?id=)
+├── crear_grupo.php        # Alta de grupo (solo admin)
+├── editar_grupo.php       # Edición de grupo (?id=, solo admin)
 ├── app.js                 # Helpers de fetch, mensajes y carga de grupos
 ├── estilos.css            # Estilos de las vistas
 ├── README.md
 └── tests/
-    └── api_test.php       # Pruebas de la API (sin dependencias)
+    └── api_test.php       # Pruebas de la API y la autenticación
 ```
 
 ## Estructura de la base de datos
@@ -116,6 +164,20 @@ Tabla interna creada y administrada por `migrate.php`.
 | `nombre` | `VARCHAR(255)` | No | UNIQUE | Nombre del archivo de migración aplicado |
 | `aplicada_en` | `TIMESTAMP` | No | — | Fecha y hora de aplicación |
 
+### Tabla `usuarios`
+
+Creada por la migración `008_usuarios.sql`.
+
+| Columna | Tipo | Nulo | Clave | Descripción |
+| --- | --- | --- | --- | --- |
+| `id` | `INT UNSIGNED` | No | PK, AUTO_INCREMENT | Identificador del usuario |
+| `usuario` | `VARCHAR(50)` | No | UNIQUE | Nombre de usuario |
+| `nombre` | `VARCHAR(100)` | No | — | Nombre mostrado en la navegación |
+| `password_hash` | `VARCHAR(255)` | No | — | Contraseña cifrada con `password_hash()` |
+| `rol` | `ENUM('admin', 'consulta')` | No | — | Permisos del usuario |
+| `activo` | `TINYINT(1)` | No | — | `1` permite iniciar sesión |
+| `creado_en` | `TIMESTAMP` | No | — | Fecha de creación |
+
 ### Relación
 
 ```text
@@ -150,6 +212,18 @@ CREATE TABLE alumnos (
   CONSTRAINT alumnos_ibfk_1
     FOREIGN KEY (IdGrupos) REFERENCES grupos (IdGrupos)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE usuarios (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  usuario VARCHAR(50) NOT NULL,
+  nombre VARCHAR(100) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  rol ENUM('admin', 'consulta') NOT NULL DEFAULT 'consulta',
+  activo TINYINT(1) NOT NULL DEFAULT 1,
+  creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY usuario (usuario)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
 > `matricula` no es única en el esquema actual. Si necesitas impedir duplicados, agrega `UNIQUE KEY` sobre esa columna.
@@ -173,7 +247,7 @@ Salida esperada la primera vez:
 
 ```text
 Base de datos: escuela
-Migraciones pendientes: 7
+Migraciones pendientes: 8
 
 Aplicando 001_create_grupos.sql... OK
 Aplicando 002_create_alumnos.sql... OK
@@ -182,8 +256,9 @@ Aplicando 004_sp_actualizar_alumno.sql... OK
 Aplicando 005_sp_crear_grupo.sql... OK
 Aplicando 006_sp_actualizar_grupo.sql... OK
 Aplicando 007_sp_duplicar_alumno.sql... OK
+Aplicando 008_usuarios.sql... OK
 
-Migraciones aplicadas: 7
+Migraciones aplicadas: 8
 ```
 
 En ejecuciones posteriores:
@@ -201,7 +276,7 @@ C:\xampp\php\php.exe migrate.php status
 
 ```text
 Base de datos: escuela
-Migraciones encontradas: 7
+Migraciones encontradas: 8
 
 [APLICADA]   001_create_grupos.sql
 [APLICADA]   002_create_alumnos.sql
@@ -210,13 +285,14 @@ Migraciones encontradas: 7
 [APLICADA]   005_sp_crear_grupo.sql
 [APLICADA]   006_sp_actualizar_grupo.sql
 [APLICADA]   007_sp_duplicar_alumno.sql
+[APLICADA]   008_usuarios.sql
 
 Pendientes: 0
 ```
 
 ### Crear una nueva migración
 
-1. Crea un archivo con el siguiente número en `migrations/`, por ejemplo `008_add_unique_matricula.sql`.
+1. Crea un archivo con el siguiente número en `migrations/`, por ejemplo `009_add_unique_matricula.sql`.
 2. Escribe el SQL.
 3. Ejecuta `C:\xampp\php\php.exe migrate.php`.
 
@@ -271,7 +347,7 @@ URL base:
 http://localhost/escuela/endpoints.php
 ```
 
-El recurso se indica con `tipo=alumnos` o `tipo=grupos`.
+El recurso se indica con `tipo=alumnos` o `tipo=grupos`. Todas las peticiones requieren sesión iniciada o token; sin ellos la API responde `401`. Las operaciones de escritura requieren rol `admin` o token (una sesión `consulta` recibe `403`).
 
 | Método | URL | Acción |
 | --- | --- | --- |
@@ -314,22 +390,31 @@ Grupo:
 
 ### Ejemplos con curl
 
+Define el token una vez:
+
+```bash
+API_TOKEN=442e35cdf0b4225362746e3f8e7a17d4a393b25d2495a628
+```
+
 Listar alumnos:
 
 ```bash
-curl "http://localhost/escuela/endpoints.php?tipo=alumnos"
+curl -H "Authorization: Bearer $API_TOKEN" \
+  "http://localhost/escuela/endpoints.php?tipo=alumnos"
 ```
 
 Obtener un alumno:
 
 ```bash
-curl "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1"
+curl -H "Authorization: Bearer $API_TOKEN" \
+  "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1"
 ```
 
 Crear un alumno:
 
 ```bash
 curl -X POST "http://localhost/escuela/endpoints.php?tipo=alumnos" \
+  -H "Authorization: Bearer $API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"nombre":"Juan Perez","matricula":"001","grado":"Primero","IdGrupos":1}'
 ```
@@ -337,7 +422,8 @@ curl -X POST "http://localhost/escuela/endpoints.php?tipo=alumnos" \
 Duplicar un alumno:
 
 ```bash
-curl -X POST "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1&accion=duplicar"
+curl -X POST "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1&accion=duplicar" \
+  -H "Authorization: Bearer $API_TOKEN"
 ```
 
 Respuesta:
@@ -354,6 +440,7 @@ Actualizar parcialmente:
 
 ```bash
 curl -X PATCH "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1" \
+  -H "Authorization: Bearer $API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"grado":"Segundo"}'
 ```
@@ -361,13 +448,15 @@ curl -X PATCH "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1" \
 Eliminar:
 
 ```bash
-curl -X DELETE "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1"
+curl -X DELETE "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1" \
+  -H "Authorization: Bearer $API_TOKEN"
 ```
 
 Crear un grupo:
 
 ```bash
 curl -X POST "http://localhost/escuela/endpoints.php?tipo=grupos" \
+  -H "Authorization: Bearer $API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"grupo":"Grupo C"}'
 ```
@@ -388,6 +477,8 @@ const respuesta = await fetch("endpoints.php?tipo=alumnos", {
 
 const datos = await respuesta.json();
 ```
+
+Desde una vista del sistema, el navegador envía la cookie de sesión automáticamente, así que no hace falta añadir el token.
 
 ### Respuestas
 
@@ -448,6 +539,8 @@ Error de validación:
 | `200` | Consulta, actualización o eliminación correcta |
 | `201` | Recurso creado correctamente |
 | `400` | Datos inválidos o incompletos |
+| `401` | Falta la sesión o el token es inválido |
+| `403` | La sesión no tiene permisos para escribir |
 | `404` | Recurso no encontrado |
 | `405` | Método HTTP no permitido |
 | `409` | Conflicto, por ejemplo borrar un grupo con alumnos |
@@ -460,7 +553,8 @@ La API acepta `application/json` y también `application/x-www-form-urlencoded` 
 Si el cliente no puede enviar `PUT`, `PATCH` o `DELETE`, se puede usar el parámetro `_method`:
 
 ```bash
-curl -X POST "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1&_method=DELETE"
+curl -X POST "http://localhost/escuela/endpoints.php?tipo=alumnos&id=1&_method=DELETE" \
+  -H "Authorization: Bearer $API_TOKEN"
 ```
 
 ## Tests de la API
@@ -483,15 +577,22 @@ Requisitos:
 - Migraciones aplicadas (`C:\xampp\php\php.exe migrate.php`).
 - La API debe responder en `http://localhost/escuela/endpoints.php`.
 
-Se puede indicar otra URL:
+Se puede indicar otra URL (la de las páginas se deduce de la de la API):
 
 ```powershell
 $env:API_BASE_URL = "http://localhost/escuela/endpoints.php"
 C:\xampp\php\php.exe tests\api_test.php
 ```
 
-Cobertura de las 28 pruebas:
+Si las páginas están en otra ruta, usa `$env:WEB_BASE_URL`.
 
+Cobertura de las 44 pruebas:
+
+- Autenticación de la API: `401` sin token, con token inválido y en escrituras; token por `Authorization`, `X-API-Token` y URL.
+- Página de login, redirección de páginas protegidas, contraseña incorrecta, login de `ricardo` y de `profesor`.
+- Permisos: el admin puede escribir con sesión, la sesión `consulta` recibe `403` y no abre formularios.
+- Cierre de sesión y vuelta al login.
+- Documentación: contrato protegido, formulario de token, token inválido, token válido y cierre del acceso.
 - `GET` de listas, recurso por defecto y recurso inexistente.
 - `GET` de alumno y grupo por `id`, incluyendo `404`.
 - `POST` de alumno y grupo, incluyendo validaciones y duplicados.
@@ -503,12 +604,13 @@ Cobertura de las 28 pruebas:
 - Compatibilidad con `_method=DELETE`.
 - Respuesta `405` para métodos no permitidos.
 
-Las pruebas crean registros temporales con prefijos `TEST-API-` (grupos) y `TST-` (matrículas), y los eliminan al iniciar y al finalizar, incluso si alguna prueba falla. No modifican los datos existentes.
+Las pruebas crean registros temporales con prefijos `TEST-API-` (grupos) y `TST-` (matrículas), y los eliminan al iniciar y al finalizar, incluso si alguna prueba falla. También usan archivos de cookies temporales para las sesiones de prueba. No modifican los datos existentes.
 
 ## Notas
 
 - La conexión a MySQL se configura en `config/database.php` y la usan tanto `endpoints.php` como `migrate.php`. Por defecto usa `root` sin contraseña, la configuración de XAMPP.
 - Se puede sobrescribir con las variables de entorno `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASS`.
+- El token de la API y el nombre de la sesión se configuran en `config/auth.php`; el token se puede sobrescribir con `API_TOKEN`.
 - Las altas y ediciones se ejecutan mediante stored procedures con transacción (ver [Stored procedures](#stored-procedures)).
 - Todas las consultas usan sentencias preparadas.
 - Los errores de base de datos no exponen el SQL al cliente.
