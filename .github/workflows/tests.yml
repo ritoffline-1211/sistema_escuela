@@ -29,7 +29,7 @@ jobs:
     # Base de datos desechable: credenciales triviales, sin secrets ni DB externa.
     services:
       mysql:
-        image: mysql:8.0
+        image: mariadb:10.11
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: testing
@@ -93,6 +93,22 @@ jobs:
           echo "Base de datos de prueba disponible.\n";
           '
 
+      - name: Asegurar permiso de ejecución de procedures
+        run: |
+          php -r '
+          $conexion = @mysqli_connect("127.0.0.1", "root", "root", "testing", 3306);
+          if (!$conexion) {
+              fwrite(STDERR, "No se pudo conectar como root a la base de prueba.\n");
+              exit(1);
+          }
+          if (!mysqli_query($conexion, "GRANT EXECUTE ON `testing`.* TO `test`@`%`")) {
+              fwrite(STDERR, mysqli_error($conexion) . "\n");
+              exit(1);
+          }
+          mysqli_query($conexion, "FLUSH PRIVILEGES");
+          echo "Permiso EXECUTE concedido.\n";
+          '
+
       - name: Instalar dependencias con Composer
         run: composer install --no-interaction --prefer-dist --no-progress
 
@@ -102,6 +118,16 @@ jobs:
           XDEBUG_MODE=coverage vendor/bin/phpunit --colors=always --testdox \
             --coverage-clover build/coverage/clover.xml \
             --log-junit build/junit.xml
+
+      - name: Diagnóstico del servidor si falla
+        if: failure()
+        run: |
+          echo "--- Registro del servidor PHP embebido ---"
+          if [ -f /tmp/escuela_phpunit_server.log ]; then
+            tail -n 200 /tmp/escuela_phpunit_server.log
+          else
+            echo "No hay registro del servidor PHP embebido."
+          fi
 
       - name: Subir reportes JUnit y cobertura
         if: always()

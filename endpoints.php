@@ -136,22 +136,56 @@ function ultimoIdInsertado($conexion): int
 
 function ejecutarProcedimiento($conexion, string $llamada, string $tipos, array $parametros)
 {
-    $stmt = mysqli_prepare($conexion, $llamada);
+    try {
+        $stmt = mysqli_prepare($conexion, $llamada);
+    } catch (mysqli_sql_exception $error) {
+        responder(["ok" => false, "mensaje" => "Error al procesar la operación."], 500);
+    }
 
     if (!$stmt) {
         responder(["ok" => false, "mensaje" => "Error al procesar la operación."], 500);
     }
 
-    mysqli_stmt_bind_param($stmt, $tipos, ...$parametros);
+    try {
+        mysqli_stmt_bind_param($stmt, $tipos, ...$parametros);
+        $ejecutado = mysqli_stmt_execute($stmt);
+    } catch (mysqli_sql_exception $error) {
+        mysqli_stmt_close($stmt);
 
-    if (!mysqli_stmt_execute($stmt)) {
+        if ($error->getCode() === 1644) {
+            responder([
+                "ok" => false,
+                "mensaje" => $error->getMessage()
+            ], stripos($error->getMessage(), "no encontrado") !== false ? 404 : 400);
+        }
+
+        responder(["ok" => false, "mensaje" => "Error al procesar la operación."], 500);
+    }
+
+    if (!$ejecutado) {
         $respuesta = errorDeProcedimiento($stmt);
         $codigo = codigoDeProcedimiento($stmt);
         mysqli_stmt_close($stmt);
         responder($respuesta, $codigo);
     }
 
+    // Los CALL pueden dejar resultados pendientes; hay que consumirlos antes
+    // de emitir otra consulta (MySQL 8.x lo exige, MariaDB lo tolera).
+    $resultado = mysqli_stmt_get_result($stmt);
+
+    if ($resultado !== false) {
+        mysqli_free_result($resultado);
+    }
+
     mysqli_stmt_close($stmt);
+
+    while (mysqli_more_results($conexion) && mysqli_next_result($conexion)) {
+        $resultado = mysqli_store_result($conexion);
+
+        if ($resultado !== false) {
+            mysqli_free_result($resultado);
+        }
+    }
 }
 
 function grupoExiste($conexion, $idGrupo)
